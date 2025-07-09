@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import warnings
+import glob
 from streamlit_option_menu import option_menu
 from PIL import Image
 
@@ -20,19 +21,19 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
+        font-size: 3rem;
         font-weight: bold;
         color: #4CAF50;
         text-align: center;
         margin-bottom: 2rem;
     }
     .section-header {
-        font-size: 1.5rem;
+        font-size: 2rem;
         font-weight: bold;
         color: #2E8B57;
         margin-top: 2rem;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid #2E8B57;
+        margin-bottom: 1.5rem;
+        border-bottom: 3px solid #2E8B57;
         padding-bottom: 0.5rem;
     }
     .metric-card {
@@ -49,70 +50,183 @@ st.markdown("""
         border-radius: 5px;
         padding: 0.5rem 1rem;
     }
+    .stMarkdown h5 {
+        font-size: 1.25rem;
+        font-weight: bold;
+    }
+    .stImageCaption {
+        font-size: 1.5rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 class SPADDashboard:
     def __init__(self):
         self.df = None
+        self.image_df = None
         self.numeric_cols = []
         self.categorical_cols = []
 
-    def load_data(self, uploaded_file=None):
-        """Load data from uploaded file"""
-        if uploaded_file is not None:
-            try:
-                self.df = pd.read_csv(uploaded_file)
-                self.df.columns = self.df.columns.str.strip()
-                if 'DATE' in self.df.columns:
-                    self.df['DATE'] = pd.to_datetime(self.df['DATE'], errors='coerce')
-                self.numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
-                self.categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
-                return True
-            except Exception as e:
-                st.error(f"Error loading data: {e}")
-                return False
-        return False
+    def load_data(self):
+        """Load data directly from the data folder."""
+        try:
+            data_path = 'data/data.csv'
+            self.df = pd.read_csv(data_path)
+            self.df.columns = self.df.columns.str.strip()
+            if 'DATE' in self.df.columns:
+                self.df['DATE'] = pd.to_datetime(self.df['DATE'], errors='coerce')
+            self.numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
+            self.categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
+            
+            # Load image paths
+            image_paths = glob.glob('data/*.jpg') + glob.glob('data/*.png')
+            if image_paths:
+                image_data = []
+                for img_path in image_paths:
+                    filename = img_path.split('/')[-1]
+                    image_data.append({'NAMEOFIMAGE': filename, 'path': img_path})
+                self.image_df = pd.DataFrame(image_data)
+                # Merge with main df
+                self.df = pd.merge(self.df, self.image_df, on="NAMEOFIMAGE", how="left")
 
-    def show_help_modal(self):
-        with st.expander("View required CSV format"):
-            st.markdown("""
-            ### Required CSV Format
+            return True
+        except FileNotFoundError:
+            st.error(f"Error: The file `data.csv` was not found in the `data/` directory.")
+            return False
+        except Exception as e:
+            st.error(f"Error loading data: {e}")
+            return False
 
-            The uploaded CSV file should have the following columns:
+    def render_eda(self):
+        st.markdown('<div class="section-header">Exploratory Data Analysis</div>', unsafe_allow_html=True)
+        
+        bento_col1, bento_col2 = st.columns((2, 1))
 
-            - **SPAD**: `(numeric)` The SPAD value.
-            - **CROP**: `(text)` The type of crop (e.g., 'CABBAGE', 'POTATO').
-            - **A/L**: `(text)` The location where the crop was grown.
-            - **L/F**: `(text)` Whether the sample is from a leaf or a fruit.
-            - **NAMEOFIMAGE**: `(text)` The name of the image file associated with the sample.
-            """)
+        with bento_col1:
+            st.markdown("##### Categorical Feature Distribution")
+          
+            if 'A/L' in self.df.columns:
+                fig = px.histogram(self.df, x='A/L', title='A/L (Atok/La Trinidad) Distribution')
+                fig.update_layout(font_size=16, title_font_size=20, hoverlabel=dict(font_size=18))
+                st.plotly_chart(fig, use_container_width=True)
+            if 'L/F' in self.df.columns:
+                fig = px.histogram(self.df, x='L/F', title='L/F (Lab/Field) Distribution')
+                fig.update_layout(font_size=16, title_font_size=20, hoverlabel=dict(font_size=18))
+                st.plotly_chart(fig, use_container_width=True)
 
+        with bento_col2:
+            st.markdown("##### Descriptive Statistics")
+            if 'CROP' in self.df.columns:
+                for crop_type in self.df['CROP'].unique():
+                    st.markdown(f"**{crop_type} SPAD Stats**")
+                    st.dataframe(self.df[self.df['CROP'] == crop_type]['SPAD'].describe())
+            else:
+                st.dataframe(self.df['SPAD'].describe())
 
-def is_image_accessible(uploaded_image) -> bool:
-    """Check if uploaded image is valid and can be opened."""
-    try:
-        uploaded_image.seek(0)
-        with Image.open(uploaded_image) as img:
-            img.verify()
-        uploaded_image.seek(0)
-        return True
-    except Exception:
-        return False
+        st.markdown('<div class="section-header">Univariate Analysis</div>', unsafe_allow_html=True)
+        
+        if 'CROP' in self.df.columns:
+            for crop_type in self.df['CROP'].unique():
+                st.markdown(f"### {crop_type} SPAD Distribution")
+                crop_df = self.df[self.df['CROP'] == crop_type]
+                
+                hist_col1, hist_col2 = st.columns(2)
+                
+                with hist_col1:
+                    lf_option = st.radio(f"Filter by L/F (Lab/Field) for {crop_type}", ['All'] + list(crop_df['L/F'].unique()), key=f'lf_{crop_type}')
+                    filtered_df_lf = crop_df if lf_option == 'All' else crop_df[crop_df['L/F'] == lf_option]
+                    fig_hist_lf = px.histogram(
+                        filtered_df_lf, x='SPAD', nbins=30,
+                        title=f'SPAD Distribution by L/F ({lf_option})',
+                        labels={'SPAD': 'SPAD Value', 'count': 'Frequency'}
+                    )
+                    fig_hist_lf.update_layout(font_size=16, title_font_size=20, yaxis_title_font_size=18, xaxis_title_font_size=18, hoverlabel=dict(font_size=18))
+                    st.plotly_chart(fig_hist_lf, use_container_width=True)
 
-def safe_load_image(uploaded_image):
-    """Safely load an uploaded image, returning a PIL Image or None."""
-    try:
-        uploaded_image.seek(0)
-        with Image.open(uploaded_image) as img:
-            img.verify()
-        uploaded_image.seek(0)
-        with Image.open(uploaded_image) as img:
-            image = img.convert("RGB")
-        return image
-    except Exception:
-        return None
+                with hist_col2:
+                    al_option = st.radio(f"Filter by A/L (Atok/La Trinidad) for {crop_type}", ['All'] + list(crop_df['A/L'].unique()), key=f'al_{crop_type}')
+                    filtered_df_al = crop_df if al_option == 'All' else crop_df[crop_df['A/L'] == al_option]
+                    fig_hist_al = px.histogram(
+                        filtered_df_al, x='SPAD', nbins=30,
+                        title=f'SPAD Distribution by A/L ({al_option})',
+                        labels={'SPAD': 'SPAD Value', 'count': 'Frequency'}
+                    )
+                    fig_hist_al.update_layout(font_size=16, title_font_size=20, yaxis_title_font_size=18, xaxis_title_font_size=18, hoverlabel=dict(font_size=18))
+                    st.plotly_chart(fig_hist_al, use_container_width=True)
 
+        st.markdown('<div class="section-header">Bivariate & Multivariate Analysis</div>', unsafe_allow_html=True)
+        
+        analysis_col1, analysis_col2 = st.columns(2)
+        with analysis_col1:
+            if 'CROP' in self.df.columns:
+                fig_box = px.box(self.df, x='CROP', y='SPAD', title='SPAD by CROP')
+                fig_box.update_layout(font_size=16, title_font_size=20, hoverlabel=dict(font_size=18))
+                st.plotly_chart(fig_box, use_container_width=True)
+
+            if 'A/L' in self.df.columns:
+                fig_box = px.box(self.df, x='A/L', y='SPAD', title='SPAD by A/L (Atok/ La Trinidad)')
+                fig_box.update_layout(font_size=16, title_font_size=20, hoverlabel=dict(font_size=18))
+                st.plotly_chart(fig_box, use_container_width=True)
+
+        with analysis_col2:
+            if 'L/F' in self.df.columns:
+                fig_box = px.box(self.df, x='L/F', y='SPAD', title='SPAD by L/F (Lab/Field)')
+                fig_box.update_layout(font_size=16, title_font_size=20, hoverlabel=dict(font_size=18))
+                st.plotly_chart(fig_box, use_container_width=True)
+
+            if 'CROP' in self.df.columns and 'A/L' in self.df.columns:
+                fig_box = px.box(self.df, x='CROP', y='SPAD', color='A/L', title='SPAD by CROP and A/L (Atok/La Trinidad)')
+                fig_box.update_layout(font_size=16, title_font_size=20, hoverlabel=dict(font_size=18))
+                st.plotly_chart(fig_box, use_container_width=True)
+
+    def render_gallery(self):
+        st.markdown('<div class="section-header">Image Gallery</div>', unsafe_allow_html=True)
+
+        if self.df is not None and 'path' in self.df.columns and not self.df['path'].isnull().all():
+            gallery_df = self.df.dropna(subset=['path'])
+
+            # Sidebar controls for filtering and sorting
+            st.sidebar.header("Gallery Controls")
+            
+            # Sorting
+            sort_order = st.sidebar.radio("Sort by SPAD Value", ["Ascending", "Descending"])
+            sort_ascending = True if sort_order == "Ascending" else False
+
+            # Filtering
+            filter_crop = st.sidebar.selectbox("Filter by Crop", ["All"] + list(gallery_df['CROP'].unique()))
+            filter_al = st.sidebar.selectbox("Filter by A/L (Atok/La Trinidad)", ["All"] + list(gallery_df['A/L'].unique()))
+            filter_lf = st.sidebar.selectbox("Filter by L/F (Lab/Field)", ["All"] + list(gallery_df['L/F'].unique()))
+
+            # Apply filters
+            if filter_crop != "All":
+                gallery_df = gallery_df[gallery_df['CROP'] == filter_crop]
+            if filter_al != "All":
+                gallery_df = gallery_df[gallery_df['A/L'] == filter_al]
+            if filter_lf != "All":
+                gallery_df = gallery_df[gallery_df['L/F'] == filter_lf]
+
+            # Apply sorting
+            gallery_df = gallery_df.sort_values(by="SPAD", ascending=sort_ascending)
+
+            st.markdown(f"#### Displaying {len(gallery_df)} images")
+
+            for i in range(0, len(gallery_df), 4):
+                cols = st.columns(4)
+                for j in range(4):
+                    if i + j < len(gallery_df):
+                        row = gallery_df.iloc[i+j]
+                        try:
+                            image = Image.open(row['path'])
+                            caption = f"SPAD: {row['SPAD']:.2f}"
+                            if 'CROP' in row:
+                                caption += f" | Crop: {row['CROP']}"
+                            cols[j].image(image, caption=caption, use_container_width=True)
+                        except FileNotFoundError:
+                            cols[j].warning(f"Image not found: {row['NAMEOFIMAGE']}")
+                        except Exception as e:
+                            cols[j].error(f"Error loading {row['NAMEOFIMAGE']}")
+        else:
+            st.warning("No images found or 'NAMEOFIMAGE' column not properly linked.")
 
 def main():
     """Main dashboard function"""
@@ -121,158 +235,28 @@ def main():
     with st.sidebar:
         selected = option_menu(
             menu_title="Main Menu",
-            options=["SPAD EDA", "Image EDA", "About"],
+            options=["SPAD EDA", "Image Gallery", "About"],
             icons=['bar-chart-line', 'images', 'info-circle'],
             menu_icon="cast",
             default_index=0,
         )
 
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload CSV file",
-        type=['csv'],
-        help="Upload your SPAD dataset CSV file"
-    )
-
     dashboard = SPADDashboard()
-
-    if uploaded_file is None:
-        dashboard.show_help_modal()
-        st.info("Please upload a CSV file to begin analysis.")
-        return
-
-    if dashboard.load_data(uploaded_file):
+    
+    if dashboard.load_data():
         st.sidebar.success("Data loaded successfully!")
 
         if selected == "SPAD EDA":
-            st.markdown("## SPAD EDA")
-            bento_col1, bento_col2 = st.columns((2, 1))
-
-            with bento_col1:
-                st.markdown('<div class="section-header">Data Inspection and Cleaning</div>', unsafe_allow_html=True)
-                if 'CROP' in dashboard.df.columns:
-                    for crop_type in dashboard.df['CROP'].unique():
-                        st.markdown(f"##### {crop_type}")
-                        st.dataframe(dashboard.df[dashboard.df['CROP'] == crop_type]['SPAD'].describe())
-                else:
-                    st.dataframe(dashboard.df['SPAD'].describe())
-
-                st.markdown("#### Missing Values")
-                st.dataframe(dashboard.df.isnull().sum().to_frame('Missing Values'))
-
-            with bento_col2:
-                st.markdown('<div class="section-header">Categorical Features</div>', unsafe_allow_html=True)
-                for col in ['A/L', 'L/F']:
-                    if col in dashboard.df.columns:
-                        st.bar_chart(dashboard.df[col].value_counts())
-
-            st.markdown('<div class="section-header">Univariate Analysis</div>', unsafe_allow_html=True)
-            if 'CROP' in dashboard.df.columns:
-                fig_hist = px.histogram(
-                    dashboard.df, x='SPAD', color='CROP', nbins=20,
-                    title='SPAD Distribution by CROP',
-                    labels={'SPAD': 'SPAD Value', 'count': 'Frequency'}
-                )
-                st.plotly_chart(fig_hist, use_container_width=True)
-            else:
-                fig_hist = px.histogram(
-                    dashboard.df, x='SPAD', nbins=20,
-                    title='SPAD Distribution',
-                    labels={'SPAD': 'SPAD Value', 'count': 'Frequency'}
-                )
-                st.plotly_chart(fig_hist, use_container_width=True)
-
-            st.markdown('<div class="section-header">Bivariate Analysis</div>', unsafe_allow_html=True)
-            if 'CROP' in dashboard.df.columns:
-                fig_box = px.box(
-                    dashboard.df, x='CROP', y='SPAD',
-                    title='SPAD Distribution by CROP'
-                )
-                st.plotly_chart(fig_box, use_container_width=True)
-
-            for col in ['A/L', 'L/F']:
-                if col in dashboard.df.columns:
-                    st.markdown(f"#### SPAD vs. {col}")
-                    fig_box = px.box(
-                        dashboard.df, x=col, y='SPAD',
-                        title=f'SPAD Distribution by {col}'
-                    )
-                    st.plotly_chart(fig_box, use_container_width=True)
-
+            dashboard.render_eda()
         
-
-            st.markdown('<div class="section-header">Multivariate Analysis</div>', unsafe_allow_html=True)
-            if 'CROP' in dashboard.df.columns and 'A/L' in dashboard.df.columns:
-                st.markdown("#### Interaction between CROP and A/L on SPAD")
-                fig_box = px.box(
-                    dashboard.df, x='CROP', y='SPAD', color='A/L',
-                    title='SPAD by CROP and A/L'
-                )
-                st.plotly_chart(fig_box, use_container_width=True)
-
-
-    
-        elif selected == "Image EDA":
-            st.markdown("## Image EDA")
-            
-            image_files = st.file_uploader("Upload Images", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-
-            if image_files:
-                if dashboard.df is not None and 'NAMEOFIMAGE' in dashboard.df.columns:
-                    image_data = []
-                    for uploaded_image in image_files:
-                        if not is_image_accessible(uploaded_image):
-                            st.warning(f"Could not process image: {uploaded_image.name}. The file is corrupted or invalid.")
-                            continue
-                        image = safe_load_image(uploaded_image)
-                        if image is None:
-                            st.warning(f"Could not process image: {uploaded_image.name}. The file is corrupted or invalid.")
-                            continue
-                        brightness = np.array(image.convert('L')).mean()
-                        image_data.append({
-                            "NAMEOFIMAGE": uploaded_image.name,
-                            "width": image.width,
-                            "height": image.height,
-                            "aspect_ratio": image.width / image.height,
-                            "brightness": brightness,
-                            "image": image
-                        })
-                    if image_data:
-                        image_df = pd.DataFrame(image_data)
-                        
-                        # Merge with SPAD data
-                        merged_df = pd.merge(dashboard.df, image_df, on="NAMEOFIMAGE")
-
-                        st.markdown("### Image Analysis")
-                        st.dataframe(merged_df[['NAMEOFIMAGE', 'SPAD', 'width', 'height', 'aspect_ratio', 'brightness']])
-
-                        # Scatter plot
-                        st.markdown("### SPAD vs. Image Brightness")
-                        fig_scatter = px.scatter(merged_df, x='brightness', y='SPAD', color='CROP',
-                                                 title='SPAD Value vs. Image Brightness',
-                                                 hover_data=['NAMEOFIMAGE'])
-                        st.plotly_chart(fig_scatter, use_container_width=True)
-
-                        # Image Gallery
-                        st.markdown("### Image Gallery")
-                        for i in range(0, len(merged_df), 4):
-                            cols = st.columns(4)
-                            for j in range(4):
-                                if i + j < len(merged_df):
-                                    row = merged_df.iloc[i+j]
-                                    cols[j].image(row['image'], caption=f"SPAD: {row['SPAD']:.2f}", use_container_width=True)
-                    else:
-                        st.info("No images could be processed.")
-                else:
-                    st.warning("Please upload a CSV file with a 'NAMEOFIMAGE' column first.")
-            else:
-                st.info("Upload images to see the EDA.")
+        elif selected == "Image Gallery":
+            dashboard.render_gallery()
 
         elif selected == "About":
-            st.markdown("## About")
-            st.markdown("This section is under construction.")
-
+            st.markdown('<div class="section-header">About</div>', unsafe_allow_html=True)
+            st.info("This section is under construction.")
     else:
-        st.error("Failed to load data. Please upload a valid CSV file.")
+        st.info("Please ensure `data.csv` is in the `src/data` directory and contains the required columns.")
 
     st.markdown("---")
     st.markdown(
