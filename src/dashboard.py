@@ -89,10 +89,6 @@ class SPADDashboard:
             """)
 
 
-
-"""
-Add a flag for marking the corrupted image
-"""
 def is_image_accessible(uploaded_image) -> bool:
     """Check if uploaded image is valid and can be opened."""
     try:
