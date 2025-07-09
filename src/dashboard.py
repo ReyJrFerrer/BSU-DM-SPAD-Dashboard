@@ -70,7 +70,7 @@ class SPADDashboard:
     def load_data(self):
         """Load data directly from the data folder."""
         try:
-            data_path = 'data/data.csv'
+            data_path = 'src/data/data.csv'
             self.df = pd.read_csv(data_path)
             self.df.columns = self.df.columns.str.strip()
             if 'DATE' in self.df.columns:
@@ -79,7 +79,7 @@ class SPADDashboard:
             self.categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
             
             # Load image paths
-            image_paths = glob.glob('data/*.jpg') + glob.glob('data/*.png')
+            image_paths = glob.glob('src/data/*.jpg') + glob.glob('src/data/*.png')
             if image_paths:
                 image_data = []
                 for img_path in image_paths:
