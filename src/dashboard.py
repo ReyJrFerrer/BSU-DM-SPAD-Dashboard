@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 # Set page configuration
 st.set_page_config(
     page_title="SPAD Analysis Dashboard",
-    page_icon="assets/image.png",
+    page_icon="src/assets/image.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
