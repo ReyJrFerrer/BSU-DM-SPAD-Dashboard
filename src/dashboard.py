@@ -100,6 +100,10 @@ class SPADDashboard:
     def render_eda(self):
         st.markdown('<div class="section-header">Exploratory Data Analysis</div>', unsafe_allow_html=True)
         
+        if self.df is None:
+            st.error("No data loaded. Please ensure data is properly loaded before analysis.")
+            return
+            
         bento_col1, bento_col2 = st.columns((2, 1))
 
         with bento_col1:
